@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./theme-toggle";
@@ -12,8 +13,15 @@ export function Header() {
       <nav className="mx-auto flex max-w-2xl items-center justify-between px-6 py-4">
         <Link
           href="/"
-          className="text-base font-semibold tracking-tight text-text-primary transition-colors hover:text-accent"
+          className="flex items-center gap-2.5 text-base font-semibold tracking-tight text-text-primary transition-colors hover:text-accent"
         >
+          <Image
+            src="/andreavittoprofile.jpg"
+            alt="Andrea Vitto"
+            width={28}
+            height={28}
+            className="rounded-full object-cover"
+          />
           Andrea Vitto
         </Link>
         <div className="flex items-center gap-5">

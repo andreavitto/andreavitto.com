@@ -24,6 +24,10 @@ export const metadata: Metadata = {
   description:
     "Building things at the intersection of AI, SaaS & automation.",
   metadataBase: new URL("https://andreavitto.com"),
+  icons: {
+    icon: "/favicon-32.png",
+    apple: "/apple-touch-icon.png",
+  },
   openGraph: {
     title: "Andrea Vitto",
     description:
