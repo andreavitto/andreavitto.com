@@ -98,7 +98,11 @@ function postProcess(content) {
 
 // ── 2. DALL-E image generation ──
 
-async function generateImage(prompt, size = "1024x1024") {
+// Fixed style suffix — appended to every image prompt
+const IMAGE_STYLE = `Hyper-minimal 3D render on a solid dark charcoal (#0a0a0a) background. Glassy, translucent objects with liquid glass / glassmorphism aesthetic. Soft refraction, subtle purple-to-cyan gradient light hitting the glass. No text, no UI elements, no people. Clean, editorial, premium feel like Linear.app or Stripe illustrations. Shallow depth of field.`;
+
+async function generateImage(subject, size = "1024x1024") {
+  const prompt = `${subject}. ${IMAGE_STYLE}`;
   if (!openai) return null;
 
   try {
@@ -131,8 +135,7 @@ async function generateImages(slug, content, title, description) {
 
   // ── Cover image ──
   console.log(`🎨 Generating cover image for "${title}"...`);
-  const coverPrompt = `${description}. Hyper-minimal 3D render on a solid dark charcoal (#0a0a0a) background. Glassy, translucent objects with liquid glass / glassmorphism aesthetic. Soft refraction, subtle purple-to-cyan gradient light hitting the glass. No text, no UI elements, no people. Clean, editorial, premium feel like Linear.app or Stripe illustrations. Shallow depth of field.`;
-  const coverBuffer = await generateImage(coverPrompt, "1792x1024");
+  const coverBuffer = await generateImage(description, "1792x1024");
 
   if (coverBuffer) {
     writeFileSync(join(imageDir, "cover.png"), coverBuffer);
@@ -154,8 +157,7 @@ async function generateImages(slug, content, title, description) {
     const filename = `image-${imageIndex}.png`;
 
     console.log(`🎨 Generating inline image ${imageIndex}: "${imageDesc}"...`);
-    const inlinePrompt = `${imageDesc}. Hyper-minimal 3D render on a solid dark charcoal (#0a0a0a) background. Glassy, translucent objects with liquid glass / glassmorphism aesthetic. Soft refraction, subtle purple-to-cyan gradient light. No text, no UI elements, no people. Clean, editorial, premium feel. Shallow depth of field.`;
-    const imageBuffer = await generateImage(inlinePrompt);
+    const imageBuffer = await generateImage(imageDesc);
 
     if (imageBuffer) {
       writeFileSync(join(imageDir, filename), imageBuffer);
