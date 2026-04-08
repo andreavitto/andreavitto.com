@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { getAllPosts, getPostBySlug } from "@/lib/posts";
 import { ReadingProgress } from "@/components/reading-progress";
@@ -40,7 +41,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       tags: post.tags,
       images: [
         {
-          url: "/og-default.png",
+          url: post.cover || "/og-default.png",
           width: 1200,
           height: 630,
           alt: post.title,
@@ -52,7 +53,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       creator: "@iamandreavitto",
       title: post.title,
       description: post.description,
-      images: ["/og-default.png"],
+      images: [post.cover || "/og-default.png"],
     },
   };
 }
@@ -103,7 +104,20 @@ export default async function BlogPost({ params }: Props) {
           </Link>
         </nav>
 
-        <header className="mt-8">
+        {post.cover && (
+          <div className="animate-fade-in-up stagger-1 mt-8 overflow-hidden rounded-xl opacity-0">
+            <Image
+              src={post.cover}
+              alt={post.title}
+              width={1792}
+              height={1024}
+              className="w-full object-cover"
+              priority
+            />
+          </div>
+        )}
+
+        <header className={post.cover ? "mt-6" : "mt-8"}>
           <h1 className="animate-fade-in-up stagger-1 text-3xl font-bold leading-tight tracking-tight opacity-0 sm:text-4xl">
             {post.title}
           </h1>

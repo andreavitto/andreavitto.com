@@ -11,6 +11,7 @@ export interface Post {
   date: string;
   description: string;
   tags: string[];
+  cover?: string;
   readingTime: string;
   wordCount: number;
   content: string;
@@ -34,6 +35,7 @@ export function getAllPosts(): Post[] {
       date: data.date ?? "",
       description: data.description ?? "",
       tags: Array.isArray(data.tags) ? data.tags : [],
+      cover: data.cover ?? undefined,
       readingTime: stats.text,
       wordCount: stats.words,
       content,

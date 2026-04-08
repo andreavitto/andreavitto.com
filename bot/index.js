@@ -1,19 +1,22 @@
 import "dotenv/config";
 import TelegramBot from "node-telegram-bot-api";
 import Anthropic from "@anthropic-ai/sdk";
-import { writeFileSync, unlinkSync, existsSync } from "fs";
+import OpenAI from "openai";
+import { writeFileSync, mkdirSync, unlinkSync, existsSync, rmSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BLOG_DIR = join(__dirname, "..", "src", "content", "blog");
+const IMAGES_DIR = join(__dirname, "..", "public", "images", "blog");
 const REPO_ROOT = join(__dirname, "..");
 
 // ── Config ──
 const {
   TELEGRAM_BOT_TOKEN,
   ANTHROPIC_API_KEY,
+  OPENAI_API_KEY,
   ALLOWED_USERS,
   VERCEL_TOKEN,
   VERCEL_PROJECT_ID = "prj_zZJQXNagOfmIQFtF5A8moTCW1YVH",
@@ -25,8 +28,12 @@ if (!TELEGRAM_BOT_TOKEN || !ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
+if (!OPENAI_API_KEY) {
+  console.warn("⚠️  No OPENAI_API_KEY — images will not be generated.");
+}
+
 if (!VERCEL_TOKEN) {
-  console.warn("⚠️  No VERCEL_TOKEN — preview URLs will be estimated, not exact.");
+  console.warn("⚠️  No VERCEL_TOKEN — preview URLs will not be available.");
 }
 
 const allowedUsers = ALLOWED_USERS
@@ -35,9 +42,9 @@ const allowedUsers = ALLOWED_USERS
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 // ── Per-chat draft state ──
-// Key: chatId, Value: { slug, title, content, branch, botMessageId }
 const drafts = new Map();
 
 // ── Helpers ──
@@ -81,6 +88,87 @@ function draftKeyboard() {
       ],
     ],
   };
+}
+
+// ── 1. Post-processor: deterministic find & replace ──
+function postProcess(content) {
+  return content
+    .replace(/—/g, ", ");
+}
+
+// ── 2. DALL-E image generation ──
+
+async function generateImage(prompt, size = "1024x1024") {
+  if (!openai) return null;
+
+  try {
+    const response = await openai.images.generate({
+      model: "dall-e-3",
+      prompt,
+      n: 1,
+      size,
+      quality: "standard",
+    });
+
+    const imageUrl = response.data[0]?.url;
+    if (!imageUrl) return null;
+
+    // Download the image
+    const res = await fetch(imageUrl);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return buffer;
+  } catch (err) {
+    console.error("DALL-E error:", err.message);
+    return null;
+  }
+}
+
+async function generateImages(slug, content, title, description) {
+  if (!openai) return content;
+
+  const imageDir = join(IMAGES_DIR, slug);
+  mkdirSync(imageDir, { recursive: true });
+
+  // ── Cover image ──
+  console.log(`🎨 Generating cover image for "${title}"...`);
+  const coverPrompt = `Blog cover image for an article titled "${title}". ${description}. Modern, minimal, dark background with subtle gradients. Abstract tech illustration. No text in the image.`;
+  const coverBuffer = await generateImage(coverPrompt, "1792x1024");
+
+  if (coverBuffer) {
+    writeFileSync(join(imageDir, "cover.png"), coverBuffer);
+    // Add cover to frontmatter
+    content = content.replace(
+      /^(---\n[\s\S]*?)(---\n)/,
+      `$1cover: "/images/blog/${slug}/cover.png"\n$2`
+    );
+  }
+
+  // ── Inline images ──
+  const placeholderRegex = /<!-- IMAGE: (.+?) -->/g;
+  let match;
+  let imageIndex = 0;
+
+  while ((match = placeholderRegex.exec(content)) !== null) {
+    imageIndex++;
+    const imageDesc = match[1];
+    const filename = `image-${imageIndex}.png`;
+
+    console.log(`🎨 Generating inline image ${imageIndex}: "${imageDesc}"...`);
+    const inlinePrompt = `${imageDesc}. Clean illustration style, minimal, dark background with subtle gradients. No text in the image.`;
+    const imageBuffer = await generateImage(inlinePrompt);
+
+    if (imageBuffer) {
+      writeFileSync(join(imageDir, filename), imageBuffer);
+      content = content.replace(
+        match[0],
+        `![${imageDesc}](/images/blog/${slug}/${filename})`
+      );
+      // Reset regex lastIndex since we modified the string
+      placeholderRegex.lastIndex = 0;
+    }
+  }
+
+  return content;
 }
 
 // ── Vercel API: wait for deployment and get preview URL ──
@@ -148,6 +236,11 @@ Write a complete blog article based on the following prompt.
 - Bold key terms and concepts
 - End with a clear conclusion or takeaway section
 
+## Images:
+Where the article would benefit from a visual illustration, insert an image placeholder like this:
+<!-- IMAGE: detailed description of what the image should show -->
+Place 1-3 image placeholders in the article where visuals would enhance understanding. Be specific and descriptive about what the image should depict.
+
 IMPORTANT: Return ONLY the following format, nothing else:
 
 ---
@@ -184,7 +277,8 @@ ${currentContent}
 The author wants the following changes:
 ${feedback}
 
-Rewrite the entire article incorporating the feedback. Keep the same frontmatter format (---title/date/description---) but update as needed.
+Rewrite the entire article incorporating the feedback. Keep the same frontmatter format (---title/date/description/tags---) but update as needed.
+Keep any existing image markdown (![alt](path)) in place unless the feedback asks to change them.
 
 IMPORTANT: Return ONLY the complete updated article in the same format, nothing else.`,
       },
@@ -210,11 +304,35 @@ function parseArticle(content) {
   };
 }
 
+// ── Full processing pipeline ──
+async function processArticle(rawContent, slug) {
+  let content = postProcess(rawContent);
+
+  const parsed = parseArticle(content);
+  if (!parsed || !parsed.title) return null;
+
+  // Use the parsed slug if not provided
+  const finalSlug = slug || toSlug(parsed.title);
+
+  // Generate images (modifies content with image paths and cover frontmatter)
+  content = await generateImages(finalSlug, content, parsed.title, parsed.description);
+
+  // Re-parse after image insertion (frontmatter may have changed)
+  const finalParsed = parseArticle(content);
+  if (!finalParsed) return null;
+
+  return {
+    ...finalParsed,
+    slug: finalSlug,
+  };
+}
+
 // ── Draft branch operations ──
 
 function createDraftBranch(slug, content) {
   const branch = `draft/${slug}`;
   const filePath = join(BLOG_DIR, `${slug}.mdx`);
+  const imageDir = join(IMAGES_DIR, slug);
 
   const current = currentBranch();
   if (current !== "main") git("git checkout main");
@@ -225,6 +343,12 @@ function createDraftBranch(slug, content) {
 
   writeFileSync(filePath, content, "utf-8");
   git(`git add "${filePath}"`);
+
+  // Also add generated images if they exist
+  if (existsSync(imageDir)) {
+    git(`git add "${imageDir}"`);
+  }
+
   git(`git commit -m "draft: ${slug}"`);
   git(`git push -u origin ${branch} --force`);
   git("git checkout main");
@@ -243,10 +367,14 @@ function publishDraft(slug, branch) {
 
 function updateDraftBranch(slug, branch, content) {
   const filePath = join(BLOG_DIR, `${slug}.mdx`);
+  const imageDir = join(IMAGES_DIR, slug);
 
   git(`git checkout ${branch}`);
   writeFileSync(filePath, content, "utf-8");
   git(`git add "${filePath}"`);
+  if (existsSync(imageDir)) {
+    git(`git add "${imageDir}"`);
+  }
   git(`git commit -m "draft: revise ${slug}"`);
   git(`git push --force`);
   git("git checkout main");
@@ -261,6 +389,10 @@ function discardDraft(slug, branch) {
 
   const filePath = join(BLOG_DIR, `${slug}.mdx`);
   if (existsSync(filePath)) unlinkSync(filePath);
+
+  // Clean up images
+  const imageDir = join(IMAGES_DIR, slug);
+  if (existsSync(imageDir)) rmSync(imageDir, { recursive: true });
 }
 
 // ── Preview text for Telegram ──
@@ -269,6 +401,8 @@ function previewText(content, maxLen = 400) {
   const clean = body
     .replace(/#{1,3}\s/g, "")
     .replace(/\*\*/g, "")
+    .replace(/!\[.*?\]\(.*?\)/g, "[image]")
+    .replace(/<!--.*?-->/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   return clean.length > maxLen ? clean.slice(0, maxLen) + "..." : clean;
 }
@@ -326,7 +460,7 @@ bot.onText(/\/start/, (msg) => {
       '• "5 lessons from building a SaaS in 2026"',
       '• "The future of AI agents"',
       "",
-      "I'll generate the article, create a Vercel preview, and send you the link.",
+      "I'll generate the article with images, create a Vercel preview, and send you the link.",
       "Then use the buttons to publish or discard, or reply to give feedback.",
       "",
       `Your user ID: \`${msg.from.id}\``,
@@ -368,20 +502,15 @@ bot.on("callback_query", async (query) => {
     return;
   }
 
-  // ── PUBLISH ──
   if (query.data === "publish") {
     bot.answerCallbackQuery(query.id, { text: "Publishing..." });
-
     try {
-      // Remove inline keyboard from the draft message
       bot.editMessageReplyMarkup(
         { inline_keyboard: [] },
         { chat_id: chatId, message_id: query.message.message_id }
       );
-
       publishDraft(draft.slug, draft.branch);
       drafts.delete(chatId);
-
       bot.sendMessage(
         chatId,
         [
@@ -400,19 +529,15 @@ bot.on("callback_query", async (query) => {
     return;
   }
 
-  // ── DISCARD ──
   if (query.data === "discard") {
     bot.answerCallbackQuery(query.id, { text: "Discarding..." });
-
     try {
       bot.editMessageReplyMarkup(
         { inline_keyboard: [] },
         { chat_id: chatId, message_id: query.message.message_id }
       );
-
       discardDraft(draft.slug, draft.branch);
     } catch {}
-
     drafts.delete(chatId);
     bot.sendMessage(chatId, "🗑 Draft discarded. Send a new prompt whenever.");
     return;
@@ -438,9 +563,9 @@ bot.on("message", async (msg) => {
 
     try {
       const revised = await reviseArticle(draft.content, text);
-      const parsed = parseArticle(revised);
+      const processed = await processArticle(revised, draft.slug);
 
-      if (!parsed || !parsed.title) {
+      if (!processed) {
         bot.editMessageText("❌ Failed to parse revised article. Try again.", {
           chat_id: chatId,
           message_id: statusMsg.message_id,
@@ -449,28 +574,22 @@ bot.on("message", async (msg) => {
       }
 
       bot.editMessageText(
-        `✏️ *Revised: ${parsed.title}*\n\nPushing & waiting for preview...`,
+        `✏️ *Revised: ${processed.title}*\n\nPushing & waiting for preview...`,
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
 
-      updateDraftBranch(draft.slug, draft.branch, parsed.content);
-      draft.content = parsed.content;
-      draft.title = parsed.title;
+      updateDraftBranch(draft.slug, draft.branch, processed.content);
+      draft.content = processed.content;
+      draft.title = processed.title;
 
       const previewUrl = await waitForPreviewUrl(draft.branch);
-
-      // Delete the old status message
       try { bot.deleteMessage(chatId, statusMsg.message_id); } catch {}
-
-      // Remove keyboard from old draft message
       try {
         bot.editMessageReplyMarkup(
           { inline_keyboard: [] },
           { chat_id: chatId, message_id: draft.botMessageId }
         );
       } catch {}
-
-      // Send new draft review message
       const newMsgId = await sendDraftReview(chatId, null, draft, previewUrl);
       draft.botMessageId = newMsgId;
     } catch (err) {
@@ -482,10 +601,7 @@ bot.on("message", async (msg) => {
     return;
   }
 
-  // ── If draft exists but not a reply, ignore (don't treat random messages as commands) ──
-  if (draft) {
-    return;
-  }
+  if (draft) return;
 
   // ── New article ──
   if (text.length < 10) {
@@ -497,9 +613,15 @@ bot.on("message", async (msg) => {
 
   try {
     const rawContent = await generateArticle(text);
-    const parsed = parseArticle(rawContent);
 
-    if (!parsed || !parsed.title) {
+    bot.editMessageText(
+      `✍️ Article generated. Processing & generating images...`,
+      { chat_id: chatId, message_id: statusMsg.message_id }
+    );
+
+    const processed = await processArticle(rawContent);
+
+    if (!processed) {
       bot.editMessageText("❌ Failed to parse the article. Try a different prompt.", {
         chat_id: chatId,
         message_id: statusMsg.message_id,
@@ -507,19 +629,17 @@ bot.on("message", async (msg) => {
       return;
     }
 
-    const slug = toSlug(parsed.title);
-
     bot.editMessageText(
-      `📝 *${parsed.title}*\n\nPushing draft & waiting for Vercel preview...`,
+      `📝 *${processed.title}*\n\nPushing draft & waiting for Vercel preview...`,
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
 
-    const branch = createDraftBranch(slug, parsed.content);
+    const branch = createDraftBranch(processed.slug, processed.content);
 
     drafts.set(chatId, {
-      slug,
-      title: parsed.title,
-      content: parsed.content,
+      slug: processed.slug,
+      title: processed.title,
+      content: processed.content,
       branch,
       botMessageId: statusMsg.message_id,
     });

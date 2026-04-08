@@ -39,6 +39,7 @@ export function blogPostingJsonLd(post: Post) {
       "@type": "WebPage",
       "@id": `${BASE_URL}/blog/${post.slug}`,
     },
+    ...(post.cover && { image: `${BASE_URL}${post.cover}` }),
     ...(post.tags && post.tags.length > 0 && { keywords: post.tags.join(", ") }),
   };
 }
