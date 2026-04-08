@@ -10,7 +10,9 @@ export interface Post {
   title: string;
   date: string;
   description: string;
+  tags: string[];
   readingTime: string;
+  wordCount: number;
   content: string;
 }
 
@@ -31,7 +33,9 @@ export function getAllPosts(): Post[] {
       title: data.title ?? slug,
       date: data.date ?? "",
       description: data.description ?? "",
+      tags: Array.isArray(data.tags) ? data.tags : [],
       readingTime: stats.text,
+      wordCount: stats.words,
       content,
     };
   });

@@ -5,7 +5,7 @@ export function Footer() {
         <p>Andrea Vitto &middot; {new Date().getFullYear()}</p>
         <div className="flex gap-4">
           <a
-            href="https://twitter.com/andreavitto"
+            href="https://x.com/iamandreavitto"
             target="_blank"
             rel="noopener noreferrer"
             className="transition-colors hover:text-text-primary"

@@ -18,30 +18,54 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Andrea Vitto",
+    default: "Andrea Vitto — AI, SaaS & Automation",
     template: "%s — Andrea Vitto",
   },
   description:
     "Building things at the intersection of AI, SaaS & automation.",
   metadataBase: new URL("https://andreavitto.com"),
+  alternates: {
+    canonical: "https://andreavitto.com",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
   icons: {
     icon: "/favicon-32.png",
     apple: "/apple-touch-icon.png",
   },
   openGraph: {
-    title: "Andrea Vitto",
+    title: "Andrea Vitto — AI, SaaS & Automation",
     description:
       "Building things at the intersection of AI, SaaS & automation.",
     url: "https://andreavitto.com",
     siteName: "Andrea Vitto",
     locale: "en_US",
     type: "website",
+    images: [
+      {
+        url: "/og-default.png",
+        width: 1200,
+        height: 630,
+        alt: "Andrea Vitto — AI, SaaS & Automation",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Andrea Vitto",
+    creator: "@iamandreavitto",
+    title: "Andrea Vitto — AI, SaaS & Automation",
     description:
       "Building things at the intersection of AI, SaaS & automation.",
+    images: ["/og-default.png"],
   },
 };
 

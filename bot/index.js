@@ -15,12 +15,18 @@ const {
   TELEGRAM_BOT_TOKEN,
   ANTHROPIC_API_KEY,
   ALLOWED_USERS,
+  VERCEL_TOKEN,
+  VERCEL_PROJECT_ID = "prj_zZJQXNagOfmIQFtF5A8moTCW1YVH",
   VERCEL_DOMAIN = "andreavitto.com",
 } = process.env;
 
 if (!TELEGRAM_BOT_TOKEN || !ANTHROPIC_API_KEY) {
   console.error("Missing TELEGRAM_BOT_TOKEN or ANTHROPIC_API_KEY in .env");
   process.exit(1);
+}
+
+if (!VERCEL_TOKEN) {
+  console.warn("⚠️  No VERCEL_TOKEN — preview URLs will be estimated, not exact.");
 }
 
 const allowedUsers = ALLOWED_USERS
@@ -31,7 +37,7 @@ const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
 // ── Per-chat draft state ──
-// { chatId: { slug, title, content, branch, prompt, originalPrompt } }
+// Key: chatId, Value: { slug, title, content, branch, botMessageId }
 const drafts = new Map();
 
 // ── Helpers ──
@@ -61,6 +67,59 @@ function currentBranch() {
   return git("git branch --show-current");
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ── Inline keyboard ──
+function draftKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Pubblica", callback_data: "publish" },
+        { text: "🗑 Scarta", callback_data: "discard" },
+      ],
+    ],
+  };
+}
+
+// ── Vercel API: wait for deployment and get preview URL ──
+async function waitForPreviewUrl(branch, maxAttempts = 30) {
+  if (!VERCEL_TOKEN) return null;
+
+  const headers = { Authorization: `Bearer ${VERCEL_TOKEN}` };
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(5000);
+
+    try {
+      const res = await fetch(
+        `https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&limit=10`,
+        { headers }
+      );
+      const data = await res.json();
+
+      const deployment = data.deployments?.find((d) => {
+        return d.meta?.githubCommitRef === branch;
+      });
+
+      if (!deployment) continue;
+
+      if (deployment.state === "READY") {
+        return `https://${deployment.url}`;
+      }
+
+      if (deployment.state === "ERROR" || deployment.state === "CANCELED") {
+        return null;
+      }
+    } catch {
+      // Network error, retry
+    }
+  }
+
+  return null;
+}
+
 // ── Generate article via Claude ──
 async function generateArticle(prompt) {
   const response = await anthropic.messages.create({
@@ -71,18 +130,31 @@ async function generateArticle(prompt) {
         role: "user",
         content: `You are a blog writer for Andrea Vitto's personal blog about AI, SaaS, and automation.
 
-Write a complete blog article based on the following prompt. The article should be:
-- Well-structured with clear sections and headings (## for h2, ### for h3)
+Write a complete blog article based on the following prompt.
+
+## Writing guidelines:
 - Written in a conversational but knowledgeable tone
 - Between 800-2000 words
 - Engaging and insightful, with practical takeaways
+
+## SEO & structure rules:
+- Title: under 60 characters, include the primary keyword
+- Description: under 155 characters, compelling for search results
+- Tags: 3-5 relevant lowercase tags
+- Use a clear heading hierarchy: ## for major sections (h2), ### for subsections (h3). Never skip heading levels.
+- The first paragraph should hook the reader and contain the main keyword naturally
+- Use short paragraphs (2-4 sentences max)
+- Include bullet points or numbered lists where appropriate
+- Bold key terms and concepts
+- End with a clear conclusion or takeaway section
 
 IMPORTANT: Return ONLY the following format, nothing else:
 
 ---
 title: "Article Title Here"
 date: "${today()}"
-description: "A compelling 1-2 sentence description for the article listing."
+description: "A compelling 1-2 sentence description under 155 chars."
+tags: ["tag1", "tag2", "tag3"]
 ---
 
 Article content here in MDX/Markdown format...
@@ -144,47 +216,29 @@ function createDraftBranch(slug, content) {
   const branch = `draft/${slug}`;
   const filePath = join(BLOG_DIR, `${slug}.mdx`);
 
-  // Make sure we're on main first
   const current = currentBranch();
-  if (current !== "main") {
-    git("git checkout main");
-  }
+  if (current !== "main") git("git checkout main");
   git("git pull --ff-only || true");
 
-  // Create and switch to draft branch
-  try {
-    git(`git branch -D ${branch}`);
-  } catch {
-    // Branch doesn't exist yet, that's fine
-  }
+  try { git(`git branch -D ${branch}`); } catch {}
   git(`git checkout -b ${branch}`);
 
-  // Write file and commit
   writeFileSync(filePath, content, "utf-8");
   git(`git add "${filePath}"`);
   git(`git commit -m "draft: ${slug}"`);
   git(`git push -u origin ${branch} --force`);
-
-  // Go back to main
   git("git checkout main");
 
   return branch;
 }
 
 function publishDraft(slug, branch) {
-  // Merge draft branch into main
   git("git checkout main");
   git("git pull --ff-only || true");
   git(`git merge ${branch} --no-edit`);
   git("git push");
 
-  // Cleanup draft branch
-  try {
-    git(`git push origin --delete ${branch}`);
-    git(`git branch -D ${branch}`);
-  } catch {
-    // Ignore cleanup errors
-  }
+  try { git(`git push origin --delete ${branch}`); git(`git branch -D ${branch}`); } catch {}
 }
 
 function updateDraftBranch(slug, branch, content) {
@@ -196,40 +250,66 @@ function updateDraftBranch(slug, branch, content) {
   git(`git commit -m "draft: revise ${slug}"`);
   git(`git push --force`);
   git("git checkout main");
+
+  return branch;
 }
 
 function discardDraft(slug, branch) {
   git("git checkout main");
+  try { git(`git push origin --delete ${branch}`); } catch {}
+  try { git(`git branch -D ${branch}`); } catch {}
 
-  // Delete remote and local branch
-  try {
-    git(`git push origin --delete ${branch}`);
-  } catch {
-    // Ignore
-  }
-  try {
-    git(`git branch -D ${branch}`);
-  } catch {
-    // Ignore
-  }
-
-  // Remove local file if it exists
   const filePath = join(BLOG_DIR, `${slug}.mdx`);
-  if (existsSync(filePath)) {
-    unlinkSync(filePath);
-  }
+  if (existsSync(filePath)) unlinkSync(filePath);
 }
 
-// ── Extract preview text for Telegram ──
-function previewText(content, maxLen = 500) {
-  // Remove frontmatter
+// ── Preview text for Telegram ──
+function previewText(content, maxLen = 400) {
   const body = content.replace(/^---[\s\S]*?---\n/, "").trim();
-  // Remove markdown formatting
   const clean = body
     .replace(/#{1,3}\s/g, "")
     .replace(/\*\*/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   return clean.length > maxLen ? clean.slice(0, maxLen) + "..." : clean;
+}
+
+// ── Send/update the draft review message ──
+async function sendDraftReview(chatId, messageId, draft, previewUrl) {
+  const preview = previewText(draft.content);
+  const articleUrl = previewUrl ? `${previewUrl}/blog/${draft.slug}` : null;
+
+  const lines = [
+    `📝 *${draft.title}*`,
+    "",
+    preview,
+    "",
+  ];
+
+  if (articleUrl) {
+    lines.push(`🔗 *Preview:* ${articleUrl}`);
+  } else {
+    lines.push(`⏳ Preview not available yet — check Vercel dashboard.`);
+  }
+
+  lines.push("", "_Reply to this message to request changes._");
+
+  if (messageId) {
+    await bot.editMessageText(lines.join("\n"), {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+      reply_markup: draftKeyboard(),
+    });
+    return messageId;
+  } else {
+    const sent = await bot.sendMessage(chatId, lines.join("\n"), {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+      reply_markup: draftKeyboard(),
+    });
+    return sent.message_id;
+  }
 }
 
 // ── Bot commands ──
@@ -243,10 +323,11 @@ bot.onText(/\/start/, (msg) => {
       "",
       "Examples:",
       '• "How RAG works and when to use it"',
-      '• "5 lessons from building a SaaS in 2024"',
+      '• "5 lessons from building a SaaS in 2026"',
       '• "The future of AI agents"',
       "",
-      "I'll generate the article, push a draft branch for Vercel preview, and ask for your approval before publishing.",
+      "I'll generate the article, create a Vercel preview, and send you the link.",
+      "Then use the buttons to publish or discard, or reply to give feedback.",
       "",
       `Your user ID: \`${msg.from.id}\``,
     ].join("\n"),
@@ -267,14 +348,75 @@ bot.onText(/\/cancel/, (msg) => {
     bot.sendMessage(chatId, "No active draft to cancel.");
     return;
   }
-
-  try {
-    discardDraft(draft.slug, draft.branch);
-  } catch {
-    // Ignore cleanup errors
-  }
+  try { discardDraft(draft.slug, draft.branch); } catch {}
   drafts.delete(chatId);
   bot.sendMessage(chatId, "🗑 Draft discarded.");
+});
+
+// ── Inline button handler ──
+bot.on("callback_query", async (query) => {
+  const chatId = query.message.chat.id;
+  const draft = drafts.get(chatId);
+
+  if (!draft) {
+    bot.answerCallbackQuery(query.id, { text: "No active draft." });
+    return;
+  }
+
+  if (!isAllowed(query.from.id)) {
+    bot.answerCallbackQuery(query.id, { text: "Not authorized." });
+    return;
+  }
+
+  // ── PUBLISH ──
+  if (query.data === "publish") {
+    bot.answerCallbackQuery(query.id, { text: "Publishing..." });
+
+    try {
+      // Remove inline keyboard from the draft message
+      bot.editMessageReplyMarkup(
+        { inline_keyboard: [] },
+        { chat_id: chatId, message_id: query.message.message_id }
+      );
+
+      publishDraft(draft.slug, draft.branch);
+      drafts.delete(chatId);
+
+      bot.sendMessage(
+        chatId,
+        [
+          `✅ *Published!*`,
+          "",
+          `*${draft.title}*`,
+          `🔗 https://${VERCEL_DOMAIN}/blog/${draft.slug}`,
+          "",
+          "Live in ~30 seconds.",
+        ].join("\n"),
+        { parse_mode: "Markdown", disable_web_page_preview: true }
+      );
+    } catch (err) {
+      bot.sendMessage(chatId, `❌ Publish failed: ${err.message}`);
+    }
+    return;
+  }
+
+  // ── DISCARD ──
+  if (query.data === "discard") {
+    bot.answerCallbackQuery(query.id, { text: "Discarding..." });
+
+    try {
+      bot.editMessageReplyMarkup(
+        { inline_keyboard: [] },
+        { chat_id: chatId, message_id: query.message.message_id }
+      );
+
+      discardDraft(draft.slug, draft.branch);
+    } catch {}
+
+    drafts.delete(chatId);
+    bot.sendMessage(chatId, "🗑 Draft discarded. Send a new prompt whenever.");
+    return;
+  }
 });
 
 // ── Main message handler ──
@@ -290,88 +432,47 @@ bot.on("message", async (msg) => {
   const text = msg.text.trim();
   const draft = drafts.get(chatId);
 
-  // ── If there's an active draft, handle review commands ──
-  if (draft) {
-    const lower = text.toLowerCase();
-
-    // ── PUBLISH ──
-    if (lower === "pubblica" || lower === "publish" || lower === "ok" || lower === "si" || lower === "sì") {
-      const statusMsg = await bot.sendMessage(chatId, "🚀 Publishing...");
-      try {
-        publishDraft(draft.slug, draft.branch);
-        drafts.delete(chatId);
-        bot.editMessageText(
-          [
-            `✅ *Published!*`,
-            "",
-            `*${draft.title}*`,
-            "",
-            `🔗 https://${VERCEL_DOMAIN}/blog/${draft.slug}`,
-            "",
-            "Vercel will deploy in ~30 seconds.",
-          ].join("\n"),
-          { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
-        );
-      } catch (err) {
-        bot.editMessageText(`❌ Publish failed: ${err.message}`, {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-        });
-      }
-      return;
-    }
-
-    // ── DISCARD ──
-    if (lower === "scarta" || lower === "discard" || lower === "no") {
-      try {
-        discardDraft(draft.slug, draft.branch);
-      } catch {
-        // Ignore
-      }
-      drafts.delete(chatId);
-      bot.sendMessage(chatId, "🗑 Draft discarded. Send a new prompt whenever you want.");
-      return;
-    }
-
-    // ── REVISION — treat any other text as feedback ──
+  // ── Reply to bot message = revision feedback ──
+  if (draft && msg.reply_to_message && msg.reply_to_message.message_id === draft.botMessageId) {
     const statusMsg = await bot.sendMessage(chatId, "✏️ Revising article...");
+
     try {
       const revised = await reviseArticle(draft.content, text);
       const parsed = parseArticle(revised);
 
       if (!parsed || !parsed.title) {
-        bot.editMessageText("❌ Failed to parse the revised article. Try again.", {
+        bot.editMessageText("❌ Failed to parse revised article. Try again.", {
           chat_id: chatId,
           message_id: statusMsg.message_id,
         });
         return;
       }
 
-      // Update the draft branch
-      updateDraftBranch(draft.slug, draft.branch, parsed.content);
+      bot.editMessageText(
+        `✏️ *Revised: ${parsed.title}*\n\nPushing & waiting for preview...`,
+        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+      );
 
-      // Update draft state
+      updateDraftBranch(draft.slug, draft.branch, parsed.content);
       draft.content = parsed.content;
       draft.title = parsed.title;
 
-      const preview = previewText(parsed.content);
-      bot.editMessageText(
-        [
-          `📝 *Revised: ${parsed.title}*`,
-          "",
-          `\`\`\``,
-          preview,
-          `\`\`\``,
-          "",
-          `🔍 Preview: will update on Vercel shortly`,
-          "",
-          "Reply with:",
-          '• *"pubblica"* — to publish',
-          "• *your feedback* — to revise again",
-          '• *"scarta"* — to discard',
-        ].join("\n"),
-        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
-      );
+      const previewUrl = await waitForPreviewUrl(draft.branch);
+
+      // Delete the old status message
+      try { bot.deleteMessage(chatId, statusMsg.message_id); } catch {}
+
+      // Remove keyboard from old draft message
+      try {
+        bot.editMessageReplyMarkup(
+          { inline_keyboard: [] },
+          { chat_id: chatId, message_id: draft.botMessageId }
+        );
+      } catch {}
+
+      // Send new draft review message
+      const newMsgId = await sendDraftReview(chatId, null, draft, previewUrl);
+      draft.botMessageId = newMsgId;
     } catch (err) {
       bot.editMessageText(`❌ Revision failed: ${err.message}`, {
         chat_id: chatId,
@@ -381,10 +482,14 @@ bot.on("message", async (msg) => {
     return;
   }
 
-  // ── No active draft: generate a new article ──
+  // ── If draft exists but not a reply, ignore (don't treat random messages as commands) ──
+  if (draft) {
+    return;
+  }
 
+  // ── New article ──
   if (text.length < 10) {
-    bot.sendMessage(chatId, "Please send a more detailed prompt (at least 10 characters).");
+    bot.sendMessage(chatId, "Send a more detailed prompt (at least 10 characters).");
     return;
   }
 
@@ -404,42 +509,24 @@ bot.on("message", async (msg) => {
 
     const slug = toSlug(parsed.title);
 
-    // Push to draft branch
     bot.editMessageText(
-      `📝 *${parsed.title}*\n\nCreating preview branch...`,
+      `📝 *${parsed.title}*\n\nPushing draft & waiting for Vercel preview...`,
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
 
     const branch = createDraftBranch(slug, parsed.content);
 
-    // Store draft
     drafts.set(chatId, {
       slug,
       title: parsed.title,
       content: parsed.content,
       branch,
-      originalPrompt: text,
+      botMessageId: statusMsg.message_id,
     });
 
-    const preview = previewText(parsed.content);
-
-    bot.editMessageText(
-      [
-        `📝 *${parsed.title}*`,
-        "",
-        `\`\`\``,
-        preview,
-        `\`\`\``,
-        "",
-        `🔍 Vercel preview will be available shortly on the \`${branch}\` branch.`,
-        "",
-        "Reply with:",
-        '• *"pubblica"* — to publish to production',
-        "• *your feedback* — to request changes",
-        '• *"scarta"* — to discard the draft',
-      ].join("\n"),
-      { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
-    );
+    const previewUrl = await waitForPreviewUrl(branch);
+    const newMsgId = await sendDraftReview(chatId, statusMsg.message_id, drafts.get(chatId), previewUrl);
+    drafts.get(chatId).botMessageId = newMsgId;
   } catch (err) {
     bot.editMessageText(`❌ Error: ${err.message}`, {
       chat_id: chatId,

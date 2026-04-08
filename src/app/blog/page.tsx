@@ -4,7 +4,11 @@ import { getAllPosts } from "@/lib/posts";
 
 export const metadata: Metadata = {
   title: "Blog",
-  description: "All articles by Andrea Vitto.",
+  description:
+    "Articles about AI, SaaS, automation, and building digital products.",
+  alternates: {
+    canonical: "https://andreavitto.com/blog",
+  },
 };
 
 export default function BlogPage() {
@@ -20,7 +24,7 @@ export default function BlogPage() {
       </p>
 
       {posts.length > 0 ? (
-        <div className="mt-10 flex flex-col gap-4">
+        <div className="mt-10">
           {posts.map((post, i) => (
             <PostCard key={post.slug} post={post} index={i} />
           ))}
