@@ -99,7 +99,7 @@ function postProcess(content) {
 // ── 2. DALL-E image generation ──
 
 // Fixed style suffix — appended to every image prompt
-const IMAGE_STYLE = `Hyper-minimal 3D render on a solid dark charcoal (#0a0a0a) background. Glassy, translucent objects with liquid glass / glassmorphism aesthetic. Soft refraction, subtle purple-to-cyan gradient light hitting the glass. No text, no UI elements, no people. Clean, editorial, premium feel like Linear.app or Stripe illustrations. Shallow depth of field.`;
+const IMAGE_STYLE = `Risograph print style illustration, grainy textured paper, visible noise overlay throughout, limited spot color palette (3-4 colors maximum), subtle halftone dots in gradients, slight color misregistration between layers, matte uncoated paper finish, hand-drawn editorial aesthetic, organic ink imperfections, soft grain texture on all flat color areas, vintage print quality with tactile feel, no photorealism, flat illustrative shapes with textured fills.`;
 
 async function generateImage(subject, size = "1024x1024") {
   const prompt = `${subject}. ${IMAGE_STYLE}`;
