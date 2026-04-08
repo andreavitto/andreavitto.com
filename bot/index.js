@@ -131,7 +131,7 @@ async function generateImages(slug, content, title, description) {
 
   // ── Cover image ──
   console.log(`🎨 Generating cover image for "${title}"...`);
-  const coverPrompt = `Blog cover image for an article titled "${title}". ${description}. Modern, minimal, dark background with subtle gradients. Abstract tech illustration. No text in the image.`;
+  const coverPrompt = `${description}. Hyper-minimal 3D render on a solid dark charcoal (#0a0a0a) background. Glassy, translucent objects with liquid glass / glassmorphism aesthetic. Soft refraction, subtle purple-to-cyan gradient light hitting the glass. No text, no UI elements, no people. Clean, editorial, premium feel like Linear.app or Stripe illustrations. Shallow depth of field.`;
   const coverBuffer = await generateImage(coverPrompt, "1792x1024");
 
   if (coverBuffer) {
@@ -154,7 +154,7 @@ async function generateImages(slug, content, title, description) {
     const filename = `image-${imageIndex}.png`;
 
     console.log(`🎨 Generating inline image ${imageIndex}: "${imageDesc}"...`);
-    const inlinePrompt = `${imageDesc}. Clean illustration style, minimal, dark background with subtle gradients. No text in the image.`;
+    const inlinePrompt = `${imageDesc}. Hyper-minimal 3D render on a solid dark charcoal (#0a0a0a) background. Glassy, translucent objects with liquid glass / glassmorphism aesthetic. Soft refraction, subtle purple-to-cyan gradient light. No text, no UI elements, no people. Clean, editorial, premium feel. Shallow depth of field.`;
     const imageBuffer = await generateImage(inlinePrompt);
 
     if (imageBuffer) {
