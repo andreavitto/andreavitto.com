@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllPosts, getPostBySlug } from "@/lib/posts";
 import { ReadingProgress } from "@/components/reading-progress";
+import { MdxContent } from "@/components/mdx-content";
 import { blogPostingJsonLd, breadcrumbJsonLd } from "@/lib/jsonld";
 import { notFound } from "next/navigation";
 
@@ -61,8 +62,6 @@ export default async function BlogPost({ params }: Props) {
   const post = getPostBySlug(slug);
   if (!post) notFound();
 
-  const { default: Content } = await import(`@/content/blog/${slug}.mdx`);
-
   return (
     <>
       <script
@@ -87,7 +86,6 @@ export default async function BlogPost({ params }: Props) {
       <ReadingProgress />
 
       <article className="mx-auto max-w-2xl px-6 pb-24 pt-32">
-        {/* Gradient accent line */}
         <div
           className="animate-fade-in-up mb-10 h-0.5 w-16 rounded-full opacity-0"
           style={{
@@ -145,7 +143,7 @@ export default async function BlogPost({ params }: Props) {
         <hr className="animate-fade-in-up stagger-4 my-10 border-text-primary/10 opacity-0" />
 
         <div className="animate-fade-in-up stagger-5 prose prose-lg max-w-none opacity-0">
-          <Content />
+          <MdxContent source={post.content} />
         </div>
       </article>
     </>
