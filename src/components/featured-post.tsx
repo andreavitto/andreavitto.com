@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import gsap from "gsap";
+import { RippleClick } from "./ripple-click";
 import type { Post } from "@/lib/posts";
 
 function formatDate(dateStr: string): string {
@@ -29,9 +29,8 @@ export function FeaturedPost({ post }: { post: Post }) {
 
   return (
     <div ref={cardRef} className="opacity-0">
-      <Link href={`/blog/${post.slug}`} className="group block">
-        <article className="relative overflow-hidden rounded-2xl border border-text-primary/5 bg-bg-secondary/50 transition-colors duration-300 hover:border-accent/20">
-          {/* Cover image */}
+      <RippleClick href={`/blog/${post.slug}`} className="rounded-2xl">
+        <article className="group relative overflow-hidden rounded-2xl border border-text-primary/5 bg-bg-secondary/50 transition-colors duration-300 hover:border-text-primary/10">
           {post.cover && (
             <div className="aspect-[16/9] overflow-hidden">
               <Image
@@ -44,7 +43,6 @@ export function FeaturedPost({ post }: { post: Post }) {
             </div>
           )}
 
-          {/* Gradient accent line (only if no cover) */}
           {!post.cover && (
             <div
               className="absolute left-0 top-0 h-[2px] w-full"
@@ -56,26 +54,26 @@ export function FeaturedPost({ post }: { post: Post }) {
           )}
 
           <div className="p-8 sm:p-10">
-          <p className="text-sm text-text-secondary">
-            {formatDate(post.date)} &middot; {post.readingTime}
-          </p>
-
-          <h3 className="mt-3 text-2xl font-semibold tracking-tight transition-colors duration-200 group-hover:text-accent sm:text-3xl">
-            {post.title}
-          </h3>
-
-          {post.description && (
-            <p className="mt-3 text-base leading-relaxed text-text-secondary sm:text-lg">
-              {post.description}
+            <p className="text-sm text-text-secondary">
+              {formatDate(post.date)} &middot; {post.readingTime}
             </p>
-          )}
 
-          <span className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-accent opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            Read article &rarr;
-          </span>
+            <h3 className="mt-3 text-2xl font-semibold tracking-tight transition-colors duration-200 group-hover:text-text-primary sm:text-3xl">
+              {post.title}
+            </h3>
+
+            {post.description && (
+              <p className="mt-3 text-base leading-relaxed text-text-secondary sm:text-lg">
+                {post.description}
+              </p>
+            )}
+
+            <span className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-text-secondary opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+              Read article &rarr;
+            </span>
           </div>
         </article>
-      </Link>
+      </RippleClick>
     </div>
   );
 }
