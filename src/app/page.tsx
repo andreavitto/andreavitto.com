@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FeaturedPost } from "@/components/featured-post";
 import { PostCard } from "@/components/post-card";
+import { GlassLens } from "@/components/glass-lens";
 import { getAllPosts } from "@/lib/posts";
 import { websiteJsonLd } from "@/lib/jsonld";
 
@@ -17,14 +18,16 @@ export default function Home() {
       />
 
       <section className="mx-auto max-w-2xl px-6 pb-24 pt-32">
-        <header className="animate-fade-in-up opacity-0">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Andrea Vitto
-          </h1>
-          <p className="mt-1 text-text-secondary">
-            Building at the intersection of AI, SaaS &amp; automation.
-          </p>
-        </header>
+        <GlassLens scale={0.22} ior={1.15} thickness={5} chromaticAberration={0.12}>
+          <header className="animate-fade-in-up opacity-0 py-8">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Andrea Vitto
+            </h1>
+            <p className="mt-1 text-text-secondary">
+              Building at the intersection of AI, SaaS &amp; automation.
+            </p>
+          </header>
+        </GlassLens>
 
         {featured && (
           <div className="mt-12">
