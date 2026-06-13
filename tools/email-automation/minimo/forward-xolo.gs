@@ -126,12 +126,8 @@ function hasPdf_(msg) {
     return /\.pdf$/i.test(a.getName()) || a.getContentType() === 'application/pdf';
   });
 }
-function getOrCreateLabel_(name) {
-  return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
-}
-
 /** Run once. De-duplicates: deletes existing forward triggers before recreating. */
-function installTriggers() {
+function installForwardTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (tr) {
     if (tr.getHandlerFunction() === 'forwardInvoicesToXolo') ScriptApp.deleteTrigger(tr);
   });

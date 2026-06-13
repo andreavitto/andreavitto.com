@@ -79,8 +79,8 @@ function getOrCreateLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
 
-/** Run once to install the 15-min trigger. */
-function installTriggers() {
+/** Run once to install the 15-min classifier trigger. */
+function installClassifierTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (tr) {
     if (tr.getHandlerFunction() === 'classifyInbox') ScriptApp.deleteTrigger(tr);
   });

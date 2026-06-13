@@ -57,14 +57,15 @@ Set **Script Properties** on each project (Project Settings → Script Propertie
 
 | Property | minimo | andreavitto |
 |---|---|---|
-| `API_BASE_URL` | `https://andreavitto.com` | `https://andreavitto.com` |
+| `API_BASE_URL` | `https://www.andreavitto.com` | `https://www.andreavitto.com` |
 | `SHARED_SECRET` | = `APPS_SCRIPT_SHARED_SECRET` | same value |
 | `ACCOUNT` | `minimo` | `andreavitto` |
 | `XOLO_TARGET` | the Xolo ingest inbox | — (no forwarder) |
 
 Then run once per project: `testClassifyEndpoint` (confirms reachable + authorized),
-then `installTriggers` (classifier: 15 min; forwarder on minimo: 30 min — the
-function de-duplicates existing triggers, fixing the old duplicate).
+then the trigger installers:
+- both projects: `installClassifierTrigger` (classifyInbox every 15 min)
+- minimo only: `installForwardTrigger` (forwardInvoicesToXolo every 30 min — de-dups existing triggers, fixing the old duplicate)
 
 ## Telegram webhook (feedback)
 
