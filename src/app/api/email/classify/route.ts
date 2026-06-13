@@ -21,6 +21,7 @@ interface ClassifyRequest {
   subject?: string;
   bodySnippet?: string;
   messageId?: string;
+  bulk?: boolean; // when true: classify + persist, but suppress Telegram push
 }
 
 export async function POST(req: NextRequest) {
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
     archived: archive,
   });
 
-  if (result.urgent) {
+  if (result.urgent && !body.bulk) {
     await notifyUrgent({ account, from, subject, categoria: result.categoria });
   }
 
