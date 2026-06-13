@@ -1,0 +1,3 @@
+# Real clasp config holds the live scriptId — keep only the .example
+.clasp.json
+.clasprc.json
