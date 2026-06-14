@@ -16,10 +16,7 @@ export interface SenderContext {
 
 // Load notes + greylist for a sender, matching both the full email and its domain.
 export async function getSenderContext(senderEmail: string): Promise<SenderContext> {
-  const email = senderEmail.toLowerCase();
-  const domain = email.split("@")[1];
-  const keys = domain ? [email, `@${domain}`] : [email];
-
+  const keys = keysFor(senderEmail);
   const supabase = createAdminClient();
   const [notesRes, greyRes] = await Promise.all([
     supabase
@@ -42,12 +39,18 @@ export async function getSenderContext(senderEmail: string): Promise<SenderConte
   };
 }
 
+// Keys for a sender: the full email + its @domain, or just @domain if a bare
+// domain was passed. Deduped.
+function keysFor(senderEmail: string): string[] {
+  const v = senderEmail.toLowerCase();
+  const domain = v.split("@")[1];
+  const keys = domain ? [v, `@${domain}`] : [v];
+  return Array.from(new Set(keys));
+}
+
 // Save a note for both the sender email and its domain.
 export async function addSenderNote(senderEmail: string, note: string): Promise<void> {
-  const email = senderEmail.toLowerCase();
-  const domain = email.split("@")[1];
-  const keys = domain ? [email, `@${domain}`] : [email];
-
+  const keys = keysFor(senderEmail);
   const supabase = createAdminClient();
   await supabase.from("email_sender_notes").insert(
     keys.map((sender_key) => ({ user_id: userId(), sender_key, note })),
@@ -56,9 +59,7 @@ export async function addSenderNote(senderEmail: string, note: string): Promise<
 
 // Add sender (and domain) to the greylist. Idempotent via upsert on PK.
 export async function addToGreylist(senderEmail: string): Promise<void> {
-  const email = senderEmail.toLowerCase();
-  const domain = email.split("@")[1];
-  const keys = domain ? [email, `@${domain}`] : [email];
+  const keys = keysFor(senderEmail);
 
   const supabase = createAdminClient();
   await supabase
@@ -111,4 +112,34 @@ export async function logInvoice(rec: InvoiceRecord): Promise<void> {
     amount_num: rec.amountNum || null,
     currency: rec.currency || null,
   });
+}
+
+export interface RecentClassification {
+  account: string;
+  senderEmail: string | null;
+  subject: string | null;
+  categoria: string;
+  urgent: boolean;
+  archived: boolean;
+}
+
+// Classifications from the last `hours` hours, newest first — for the recap.
+export async function getRecentClassifications(hours: number): Promise<RecentClassification[]> {
+  const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("email_classifications")
+    .select("account, sender_email, subject, categoria, urgent, archived")
+    .eq("user_id", userId())
+    .gte("created_at", since)
+    .order("created_at", { ascending: false });
+
+  return (data ?? []).map((r) => ({
+    account: r.account as string,
+    senderEmail: r.sender_email as string | null,
+    subject: r.subject as string | null,
+    categoria: r.categoria as string,
+    urgent: r.urgent as boolean,
+    archived: r.archived as boolean,
+  }));
 }
