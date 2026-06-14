@@ -16,17 +16,44 @@ var PROCESSED_LABEL = 'AI-Classificata';
 var MAX_PER_RUN = 40;
 
 function classifyInbox() {
+  runClassification_(MAX_PER_RUN, false);
+}
+
+/**
+ * BULK: classify the whole unread backlog. Suppresses Telegram push (bulk:true)
+ * and loops in batches of MAX_PER_RUN until the inbox is drained or the Apps
+ * Script ~6-min execution limit is near. Re-run if it stops early — already
+ * processed threads are skipped via the AI-Classificata label.
+ */
+function classifyAllUnread() {
+  var start = Date.now();
+  var total = 0;
+  while (true) {
+    var n = runClassification_(MAX_PER_RUN, true);
+    total += n;
+    Logger.log('Bulk progress: ' + total + ' classified so far');
+    if (n === 0) break;                       // backlog drained
+    if (Date.now() - start > 5 * 60 * 1000) { // ~5 min: stop before the 6-min cap
+      Logger.log('Bulk stopped near time limit at ' + total + ' — re-run to continue.');
+      break;
+    }
+  }
+  Logger.log('Bulk done. Total classified this run: ' + total);
+}
+
+function runClassification_(limit, bulk) {
   var props = PropertiesService.getScriptProperties();
   var base = props.getProperty('API_BASE_URL');
   var secret = props.getProperty('SHARED_SECRET');
   var account = props.getProperty('ACCOUNT') || 'andreavitto';
   if (!base || !secret) {
     Logger.log('Missing API_BASE_URL or SHARED_SECRET in Script Properties');
-    return;
+    return 0;
   }
 
   var processed = getOrCreateLabel_(PROCESSED_LABEL);
-  var threads = GmailApp.search('in:inbox is:unread -label:"' + PROCESSED_LABEL + '"', 0, MAX_PER_RUN);
+  var threads = GmailApp.search('in:inbox is:unread -label:"' + PROCESSED_LABEL + '"', 0, limit);
+  var count = 0;
 
   threads.forEach(function (thread) {
     var msg = thread.getMessages()[thread.getMessageCount() - 1];
@@ -39,12 +66,15 @@ function classifyInbox() {
       subject: msg.getSubject() || '',
       bodySnippet: body,
       messageId: msg.getId(),
+      bulk: bulk === true,
     });
     if (!res) { return; } // leave unprocessed; retry next run
 
     applyResult_(thread, res);
     thread.addLabel(processed);
+    count++;
   });
+  return count;
 }
 
 function callClassify_(base, secret, payload) {
@@ -79,8 +109,8 @@ function getOrCreateLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
 
-/** Run once to install the 15-min trigger. */
-function installTriggers() {
+/** Run once to install the 15-min classifier trigger. */
+function installClassifierTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (tr) {
     if (tr.getHandlerFunction() === 'classifyInbox') ScriptApp.deleteTrigger(tr);
   });
